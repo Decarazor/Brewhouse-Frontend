@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background-color:#f5fcff }
+      select, button { margin: 5px; padding: 5px; }
+      table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+      th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+      .highlight { background-color: yellow; }
+      .added-btn { margin-left: 10px; }
+      .marked-added { background-color: rgba(111, 217, 123, 0.7); }
+      .timer-box { display: inline-block; width: 120px; font-weight: bold; font-size: 1.2em; }
+      #header-logo { position: absolute; top: 10px; left: 10px; height: 200px; }
+      .next-addition { margin-top: 10px; font-weight: bold; font-size: 1em; }
+
+      .beer-glass {
+        width: 40px;
+        height: 120px;
+        border: 2px solid #8b5e3c;
+        background: #fffbe6;
+        margin: 0 auto 10px;
+        position: relative;
+        border-radius: 5px 5px 2px 2px;
+        overflow: hidden;
+      }
+
+      .beer-fill {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: goldenrod;
+        transition: height 0.5s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="https://lionstailbrewing.com/wp-content/themes/lions-tail-2022/images/lions-tail-nav-logo.svg" id="header-logo" alt="Lion's Tail Logo">
+    <h2>LTB - Brew Timer</h2>
+
+    <label for="recipeSelect">Select Recipe:</label>
+    <select id="recipeSelect"></select>
+    <button onclick="loadRecipe()">Load Recipe</button>
+
+    <div style="margin-top: 20px; display: flex; justify-content: center; gap: 40px;">
+      <div>
+        <div class="beer-glass"><div id="beerFillA" class="beer-fill"></div></div>
+        <span>Batch A: </span>
+        <span class="timer-box" id="timerA">00:00</span>
+        <button onclick="startTimer('A')">Start Batch A</button>
+        <button onclick="pauseTimer('A')">Pause Batch A</button>
+        <button onclick="resetTimer('A')">Reset Batch A</button>
+        <div class="next-addition" id="nextAdditionA"></div>
+      </div>
+      <div>
+        <div class="beer-glass"><div id="beerFillB" class="beer-fill"></div></div>
+        <span>Batch B: </span>
+        <span class="timer-box" id="timerB">00:00</span>
+        <button onclick="startTimer('B')">Start Batch B</button>
+        <button onclick="pauseTimer('B')">Pause Batch B</button>
+        <button onclick="resetTimer('B')">Reset Batch B</button>
+        <div class="next-addition" id="nextAdditionB"></div>
+      </div>
+    </div>
+
+    <table id="additionsTable">
+      <thead>
+        <tr>
+          <th>Time (min)</th>
+          <th>Name</th>
+          <th>Hops (oz)</th>
+          <th>IBUs</th>
+          <th>Adjunct Vol.</th>
+          <th>Other</th>
+          <th>Batch A</th>
+          <th>Batch B</th>
+          <th>Time of Addition (Local)</th>
+          <th>Added?</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <script>
+      let allAdditions = [];
+      let timerIntervalA = null;
+      let timerIntervalB = null;
+      let currentTimeA = 0;
+      let currentTimeB = 0;
+      let startTimeA = null;
+      let startTimeB = null;
+      let initialTimeA = 0;
+      let initialTimeB = 0;
+
+      function formatTime(mins) {
+        const m = Math.floor(mins);
+        const s = Math.round((mins - m) * 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+
+      function formatClockTime(date) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+function startTimer(batch) {
+  const now = new Date();
+  if (batch === "A" && !timerIntervalA) {
+    startTimeA = now;
+    initialTimeA = currentTimeA;
+    calculateAdditionTimes("A", now);
+    filterRowsByBatch("A"); // Filter for Batch A
+    timerIntervalA = setInterval(() => updateTimer("A"), 1000);
+  }
+  if (batch === "B" && !timerIntervalB) {
+    startTimeB = now;
+    initialTimeB = currentTimeB;
+    calculateAdditionTimes("B", now);
+    filterRowsByBatch("B"); // Filter for Batch B
+    timerIntervalB = setInterval(() => updateTimer("B"), 1000);
+  }
+}
+
+      function pauseTimer(batch) {
+        if (batch === "A" && timerIntervalA) {
+          clearInterval(timerIntervalA);
+          timerIntervalA = null;
+        } else if (batch === "B" && timerIntervalB) {
+          clearInterval(timerIntervalB);
+          timerIntervalB = null;
+        }
+      }
+
+      function resetTimer(batch) {
+        if (batch === "A") {
+          currentTimeA = initialTimeA;
+          document.getElementById("timerA").textContent = formatTime(currentTimeA / 60);
+          document.getElementById("beerFillA").style.height = "100%";
+          clearInterval(timerIntervalA);
+          timerIntervalA = null;
+        } else if (batch === "B") {
+          currentTimeB = initialTimeB;
+          document.getElementById("timerB").textContent = formatTime(currentTimeB / 60);
+          document.getElementById("beerFillB").style.height = "100%";
+          clearInterval(timerIntervalB);
+          timerIntervalB = null;
+        }
+      }
+
+      function calculateAdditionTimes(batch, startTime) {
+        const rows = document.querySelectorAll("#additionsTable tbody tr");
+        let soonest = null;
+        rows.forEach((row, i) => {
+          const add = allAdditions[i];
+          if ((batch === "A" && add.batchA) || (batch === "B" && add.batchB)) {
+            const timeOffset = (batch === "A" ? currentTimeA : currentTimeB) / 60 - add.timeRemaining;
+            const additionTime = new Date(startTime.getTime() + timeOffset * 60000);
+            row.querySelector(".addition-time").textContent = formatClockTime(additionTime);
+            if (!soonest || add.timeRemaining > soonest.timeRemaining) {
+              soonest = { time: formatClockTime(additionTime), timeRemaining: add.timeRemaining };
+            }
+          }
+        });
+        if (soonest) {
+          document.getElementById(`nextAddition${batch}`).textContent = `Next Addition at ${soonest.time}`;
+        }
+      }
+
+      function updateTimer(batch) {
+        if (batch === "A") {
+          if (currentTimeA > 0) {
+            currentTimeA -= 1;
+            document.getElementById("timerA").textContent = formatTime(currentTimeA / 60);
+            highlightAdditions("A", currentTimeA / 60);
+            updateBeerGlass("A");
+          }
+        } else if (batch === "B") {
+          if (currentTimeB > 0) {
+            currentTimeB -= 1;
+            document.getElementById("timerB").textContent = formatTime(currentTimeB / 60);
+            highlightAdditions("B", currentTimeB / 60);
+            updateBeerGlass("B");
+          }
+        }
+      }
+
+      function updateBeerGlass(batch) {
+        let height = 0;
+        if (batch === "A" && initialTimeA > 0) {
+          height = (currentTimeA / initialTimeA) * 100;
+          document.getElementById("beerFillA").style.height = `${height}%`;
+        } else if (batch === "B" && initialTimeB > 0) {
+          height = (currentTimeB / initialTimeB) * 100;
+          document.getElementById("beerFillB").style.height = `${height}%`;
+        }
+      }
+
+      function highlightAdditions(batch, timeLeft) {
+        const rows = document.querySelectorAll("#additionsTable tbody tr");
+        let closestDiff = Infinity;
+        let closestRow = null;
+
+        rows.forEach((row, i) => {
+          const add = allAdditions[i];
+          const isForBatch = (batch === "A" && add.batchA) || (batch === "B" && add.batchB);
+          if (isForBatch) {
+            const diff = Math.abs(add.timeRemaining - timeLeft);
+            if (diff < 0.5 && diff < closestDiff) {
+              closestDiff = diff;
+              closestRow = row;
+            }
+          }
+          row.classList.remove("highlight");
+        });
+
+        if (closestRow) {
+          closestRow.classList.add("highlight");
+        }
+      }
+
+      function loadRecipe() {
+        const select = document.getElementById("recipeSelect");
+        const fileId = select.value;
+        google.script.run.withSuccessHandler(renderRecipe).getRecipeData(fileId);
+      }
+
+      function renderRecipe(data) {
+        allAdditions = data.additions;
+        currentTimeA = Math.round(data.boilTimeA * 60);
+        currentTimeB = Math.round(data.boilTimeB * 60);
+        initialTimeA = currentTimeA;
+        initialTimeB = currentTimeB;
+        document.getElementById("timerA").textContent = formatTime(currentTimeA / 60);
+        document.getElementById("timerB").textContent = formatTime(currentTimeB / 60);
+        document.getElementById("beerFillA").style.height = "100%";
+        document.getElementById("beerFillB").style.height = "100%";
+
+        const tbody = document.querySelector("#additionsTable tbody");
+        tbody.innerHTML = "";
+        allAdditions.forEach(add => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${add.timeRemaining.toFixed(2)}</td>
+            <td>${add.name}</td>
+            <td>${add.hops.toFixed(2)}</td>
+            <td>${add.ibus.toFixed(2)}</td>
+            <td>${add.adjuncts.toFixed(2)}</td>
+            <td>${add.other}</td>
+            <td>${add.batchA ? "✔️" : ""}</td>
+            <td>${add.batchB ? "✔️" : ""}</td>
+            <td class="addition-time"></td>
+            <td><button class="added-btn" onclick="toggleAdded(this)">Added?</button></td>
+          `;
+          tbody.appendChild(row);
+        });
+      }
+
+      function toggleAdded(button) {
+        const isAdded = button.classList.toggle("marked-added");
+        button.textContent = isAdded ? "✅ Added" : "Added?";
+        button.parentElement.parentElement.style.backgroundColor = isAdded ? "rgba(44, 191, 61, 0.8)" : "";
+      }
+      function filterRowsByBatch(batch) {
+  const rows = document.querySelectorAll("#additionsTable tbody tr");
+  rows.forEach((row, i) => {
+    const add = allAdditions[i];
+    if ((batch === "A" && add.batchA) || (batch === "B" && add.batchB)) {
+      row.style.display = ''; // Show row
+    } else {
+      row.style.display = 'none'; // Hide row
+    }
+  });
+}
+function resetTimer(batch) {
+  if (batch === "A") {
+    clearInterval(timerIntervalA);
+    timerIntervalA = null;
+    currentTimeA = initialTimeA;
+    document.getElementById("timerA").textContent = formatTime(currentTimeA / 60);
+    filterRowsByBatch(""); // Show all rows for Batch A
+  }
+  if (batch === "B") {
+    clearInterval(timerIntervalB);
+    timerIntervalB = null;
+    currentTimeB = initialTimeB;
+    document.getElementById("timerB").textContent = formatTime(currentTimeB / 60);
+    filterRowsByBatch(""); // Show all rows for Batch B
+  }
+}
+
+
+      function populateDropdown() {
+        google.script.run.withSuccessHandler(files => {
+          const select = document.getElementById("recipeSelect");
+          select.innerHTML = "";
+          files.forEach(file => {
+            const option = document.createElement("option");
+            option.value = file.id;
+            option.textContent = file.name;
+            select.appendChild(option);
+          });
+        }).getRecipeFiles();
+      }
+
+      populateDropdown();
+    </script>
+  </body>
+</html>
